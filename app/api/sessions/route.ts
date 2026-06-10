@@ -6,6 +6,7 @@ import {
   ValidationError
 } from "@/lib/validation/sessions";
 import { parseResources } from "@/lib/utils/resources";
+import { generateRecommendation } from "@/lib/ai/recommendations";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -65,11 +66,14 @@ export async function POST(request: Request) {
       session_id: session.id
     }));
 
-    const { error: resourcesError } = await supabase
+    const { data: savedResources, error: resourcesError } = await supabase
       .from("resources")
-      .insert(parsedResources);
+      .insert(parsedResources)
+      .select(
+        "id, position, input_text, url, title, source_type, evidence_level"
+      );
 
-    if (resourcesError) {
+    if (resourcesError || !savedResources) {
       await supabase.from("decision_sessions").delete().eq("id", session.id);
       return errorResponse(
         "DATABASE_ERROR",
@@ -78,10 +82,85 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({
-      session_id: session.id,
-      status: session.status
-    });
+    await supabase
+      .from("decision_sessions")
+      .update({ status: "processing" })
+      .eq("id", session.id);
+
+    try {
+      const recommendation = await generateRecommendation({
+        learningGoal: input.learningGoal,
+        preference: input.preference,
+        resources: savedResources
+      });
+
+      const primaryResource = savedResources.find(
+        (resource) => resource.id === recommendation.primary_resource_id
+      );
+
+      const { error: resultError } = await supabase
+        .from("recommendation_results")
+        .insert({
+          session_id: session.id,
+          primary_resource_id: recommendation.primary_resource_id,
+          primary_reason: recommendation.primary_reason,
+          comparative_summary: recommendation.comparative_summary
+        });
+
+      if (resultError) {
+        throw new Error("Failed to save recommendation result.");
+      }
+
+      const { error: itemsError } = await supabase
+        .from("recommendation_items")
+        .insert(
+          recommendation.items.map((item) => ({
+            session_id: session.id,
+            resource_id: item.resource_id,
+            category: item.category,
+            rank: item.rank,
+            reason: item.reason
+          }))
+        );
+
+      if (itemsError) {
+        throw new Error("Failed to save recommendation items.");
+      }
+
+      await supabase
+        .from("decision_sessions")
+        .update({
+          status: "completed",
+          confidence_level: recommendation.confidence_level,
+          confidence_reason: recommendation.confidence_reason,
+          recommended_resource_title:
+            primaryResource?.title ?? primaryResource?.input_text ?? null
+        })
+        .eq("id", session.id);
+
+      return NextResponse.json({
+        session_id: session.id,
+        status: "completed"
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to generate recommendation.";
+
+      await supabase
+        .from("decision_sessions")
+        .update({
+          status: "failed",
+          error_message: message
+        })
+        .eq("id", session.id);
+
+      return NextResponse.json({
+        session_id: session.id,
+        status: "failed"
+      });
+    }
   } catch {
     return errorResponse(
       "DATABASE_ERROR",

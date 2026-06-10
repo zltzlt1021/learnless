@@ -55,10 +55,62 @@ export async function GET(
       );
     }
 
+    const { data: result, error: resultError } = await supabase
+      .from("recommendation_results")
+      .select("primary_resource_id, primary_reason, comparative_summary")
+      .eq("session_id", id)
+      .maybeSingle();
+
+    if (resultError) {
+      return errorResponse(
+        "DATABASE_ERROR",
+        "\u8bfb\u53d6\u63a8\u8350\u7ed3\u679c\u5931\u8d25\u3002",
+        500
+      );
+    }
+
+    const { data: items, error: itemsError } = await supabase
+      .from("recommendation_items")
+      .select("resource_id, category, rank, reason")
+      .eq("session_id", id)
+      .order("rank", { ascending: true, nullsFirst: false });
+
+    if (itemsError) {
+      return errorResponse(
+        "DATABASE_ERROR",
+        "\u8bfb\u53d6\u63a8\u8350\u5206\u7c7b\u5931\u8d25\u3002",
+        500
+      );
+    }
+
+    const resourceById = new Map(
+      (resources ?? []).map((resource) => [resource.id, resource])
+    );
+
+    const mappedItems = (items ?? []).map((item) => ({
+      ...item,
+      resource: resourceById.get(item.resource_id) ?? null
+    }));
+
+    const responseResult = result
+      ? {
+          primary:
+            mappedItems.find((item) => item.category === "primary") ?? null,
+          complementary: mappedItems.filter(
+            (item) => item.category === "complementary"
+          ),
+          not_recommended_now: mappedItems.filter(
+            (item) => item.category === "not_recommended_now"
+          ),
+          comparative_summary: result.comparative_summary,
+          primary_reason: result.primary_reason
+        }
+      : null;
+
     return NextResponse.json({
       ...session,
       resources: resources ?? [],
-      result: null
+      result: responseResult
     });
   } catch {
     return errorResponse(

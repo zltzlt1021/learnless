@@ -25,7 +25,23 @@ type SessionDetail = {
   error_message: string | null;
   created_at: string;
   resources: Resource[];
-  result: null;
+  result: RecommendationResult | null;
+};
+
+type RecommendationItem = {
+  resource_id: string;
+  category: "primary" | "complementary" | "not_recommended_now";
+  rank: number | null;
+  reason: string;
+  resource: Resource | null;
+};
+
+type RecommendationResult = {
+  primary: RecommendationItem | null;
+  complementary: RecommendationItem[];
+  not_recommended_now: RecommendationItem[];
+  comparative_summary: string;
+  primary_reason: string;
 };
 
 const preferenceLabels: Record<string, string> = {
@@ -108,9 +124,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               {session.status}
             </p>
 
-            {session.status === "pending" ? (
+            {session.status === "pending" || session.status === "processing" ? (
               <p className="notice">
-                {"\u5df2\u4fdd\u5b58\u3002AI \u5206\u6790\u5c06\u5728\u4e0b\u4e00\u9636\u6bb5\u63a5\u5165\u3002"}
+                {"\u6b63\u5728\u751f\u6210\u63a8\u8350\uff0c\u8bf7\u7a0d\u540e\u5237\u65b0\u3002"}
               </p>
             ) : null}
 
@@ -118,6 +134,56 @@ export default function SessionPage({ params }: { params: { id: string } }) {
               <p className="error">
                 {session.error_message ?? "\u8fd9\u4e2a\u5b66\u4e60\u4efb\u52a1\u5904\u7406\u5931\u8d25\u3002"}
               </p>
+            ) : null}
+
+            {session.result ? (
+              <section>
+                <h3>{"Primary Recommendation"}</h3>
+                {session.result.primary ? (
+                  <RecommendationBlock item={session.result.primary} />
+                ) : (
+                  <p className="muted">{"\u6682\u65e0\u4e3b\u63a8\u8350\u3002"}</p>
+                )}
+
+                <h3>{"Supporting Resources"}</h3>
+                {session.result.complementary.length > 0 ? (
+                  <ul className="list">
+                    {session.result.complementary.map((item) => (
+                      <RecommendationListItem
+                        key={item.resource_id}
+                        item={item}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">{"\u6ca1\u6709\u989d\u5916\u8865\u5145\u8d44\u6e90\u3002"}</p>
+                )}
+
+                <h3>{"Not Recommended Now"}</h3>
+                {session.result.not_recommended_now.length > 0 ? (
+                  <ul className="list">
+                    {session.result.not_recommended_now.map((item) => (
+                      <RecommendationListItem
+                        key={item.resource_id}
+                        item={item}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="muted">{"\u6ca1\u6709\u9700\u8981\u6682\u7f13\u7684\u8d44\u6e90\u3002"}</p>
+                )}
+
+                <h3>{"Comparative Reasoning"}</h3>
+                <p>{session.result.comparative_summary}</p>
+
+                <h3>{"Confidence"}</h3>
+                <p>
+                  {session.confidence_level ?? "\u6682\u65e0"}
+                  {session.confidence_reason
+                    ? `: ${session.confidence_reason}`
+                    : ""}
+                </p>
+              </section>
             ) : null}
 
             <h3>{"\u5019\u9009\u8d44\u6e90"}</h3>
@@ -139,5 +205,23 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         ) : null}
       </section>
     </>
+  );
+}
+
+function RecommendationBlock({ item }: { item: RecommendationItem }) {
+  return (
+    <div className="list-item">
+      <strong>{item.resource?.input_text ?? item.resource_id}</strong>
+      <p>{item.reason}</p>
+    </div>
+  );
+}
+
+function RecommendationListItem({ item }: { item: RecommendationItem }) {
+  return (
+    <li className="list-item">
+      <strong>{item.resource?.input_text ?? item.resource_id}</strong>
+      <p>{item.reason}</p>
+    </li>
   );
 }
