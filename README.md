@@ -35,8 +35,5 @@ User Input
 
 ## Live Demo
 
-<your vercel url>
+(https://learnless-five.vercel.app/)
 
-## Screenshots
-
-...
